@@ -14,7 +14,14 @@ namespace TPSShooter
   [RequireComponent(typeof(Animator))]
   public partial class EnemyBehaviour : Base
   {
-    public EnemyVisionSettings VisionSettings = new EnemyVisionSettings();
+
+        [Header("Ally Settings")]
+        public bool IsAlly = false;  // Переключатель враг/союзник
+        public bool AttackPlayer = false; // Атаковать ли игрока (даже если союзник)
+        [SerializeField] private float followDistance = 5f; // Дистанция следования за игроком
+        [SerializeField] private float allySearchRadius = 20f; // Радиус поиска врагов союзником
+
+        public EnemyVisionSettings VisionSettings = new EnemyVisionSettings();
     public EnemyPatrollingSettings PatrollingSettings = new EnemyPatrollingSettings();
     public EnemyWeaponSettings WeaponSettings = new EnemyWeaponSettings();
     public EnemyDeathSettings DeathSettings = new EnemyDeathSettings();
@@ -135,13 +142,142 @@ namespace TPSShooter
       Events.PlayerDied -= OnPlayerDied;
     }
 
-    private void Update()
-    {
-      currentState.OnUpdate();
-      UpdateGravity();
-    }
+        private void Update()
+        {
+            if (currentState == deathState) return;
 
-    private void LateUpdate()
+            if (IsAlly && !AttackPlayer)
+            {
+                UpdateAllyBehavior();
+            }
+            else
+            {
+                currentState.OnUpdate();
+            }
+            UpdateGravity();
+        }
+
+        private void UpdateAllyBehavior()
+        {
+            // Поиск ближайшего врага
+            EnemyBehaviour nearestEnemy = FindNearestEnemy();
+            EnemyBehaviour currentTarget;
+            if (nearestEnemy != null)
+            {
+                // Устанавливаем врага как текущую цель
+                currentTarget = nearestEnemy;
+
+                float distanceToEnemy = Vector3.Distance(transform.position, nearestEnemy.transform.position);
+
+                if (distanceToEnemy <= InnerAttackRadius)
+                {
+                    // Если враг в радиусе атаки - атакуем
+                    StopNavMeshAgent();
+                    if (currentState != attackState)
+                    {
+                        ChangeState(attackState);
+                    }
+                }
+                else if (distanceToEnemy <= OuterAttackRadius)
+                {
+                    // Если враг в радиусе преследования - преследуем
+                    navmeshAgent.SetDestination(nearestEnemy.transform.position);
+                    ResumeNavMeshAgent();
+                    SetForwardAnimatorParameter(1f);
+
+                    if (currentState != chaseState)
+                    {
+                        ChangeState(chaseState);
+                    }
+                }
+
+                // Обновляем текущее состояние
+                currentState.OnUpdate();
+            }
+            else
+            {
+                // Если врагов нет - следуем за игроком
+                currentTarget = null;
+                FollowPlayer();
+            }
+        }
+
+        private EnemyBehaviour FindNearestEnemy()
+        {
+            Collider[] colliders = Physics.OverlapSphere(transform.position, OuterAttackRadius);
+            float closestDistance = float.MaxValue;
+            EnemyBehaviour nearestEnemy = null;
+
+            foreach (Collider col in colliders)
+            {
+                EnemyBehaviour enemy = col.GetComponent<EnemyBehaviour>();
+                if (enemy != null && enemy != this && !enemy.IsAlly && enemy.IsAlive())
+                {
+                    float distance = Vector3.Distance(transform.position, enemy.transform.position);
+                    if (distance < closestDistance)
+                    {
+                        // Проверяем видимость через raycast
+                        Vector3 directionToEnemy = (enemy.transform.position - transform.position).normalized;
+                        RaycastHit hit;
+                        if (Physics.Raycast(VisionSettings.VisionPosition.position, directionToEnemy, out hit))
+                        {
+                            if (hit.collider.GetComponentInParent<EnemyBehaviour>() == enemy)
+                            {
+                                closestDistance = distance;
+                                nearestEnemy = enemy;
+                            }
+                        }
+                    }
+                }
+            }
+            return nearestEnemy;
+        }
+
+        private void AttackEnemyAsAlly(EnemyBehaviour enemy)
+        {
+            float distanceToEnemy = Vector3.Distance(transform.position, enemy.transform.position);
+
+            if (distanceToEnemy <= InnerAttackRadius)
+            {
+                // Если враг в радиусе атаки
+                if (currentState != attackState)
+                {
+                    ChangeState(attackState);
+                }
+                currentState.OnUpdate();
+            }
+            else
+            {
+                // Преследуем врага
+                navmeshAgent.SetDestination(enemy.transform.position);
+                ResumeNavMeshAgent();
+                SetForwardAnimatorParameter(1f);
+            }
+        }
+
+        private void FollowPlayer()
+        {
+            float distanceToPlayer = GetDistanceToPlayer();
+
+            if (distanceToPlayer > followDistance)
+            {
+                // Вычисляем позицию позади игрока
+                Vector3 targetPosition = player.transform.position - player.transform.forward * (followDistance * 0.8f);
+
+                navmeshAgent.SetDestination(targetPosition);
+                ResumeNavMeshAgent();
+                SetForwardAnimatorParameter(1f);
+            }
+            else
+            {
+                StopNavMeshAgent();
+                SetForwardAnimatorParameter(0f);
+            }
+        }
+
+
+
+        private void LateUpdate()
     {
       UpdateSpineIK();
     }
@@ -181,32 +317,53 @@ namespace TPSShooter
       }
     }
 
-    public void OnBulletHit(PlayerBullet bullet, float damageMultiplier)
-    {
-      if (currentState == deathState) return;
+        public void OnBulletHit(PlayerBullet bullet, float damageMultiplier)
+        {
+            if (currentState == deathState) return;
 
-      hp -= bullet.damage * damageMultiplier;
-      onHpChanged?.Invoke();
+            // Если союзник и не настроен атаковать игрока - игнорируем урон
+            if (IsAlly && !AttackPlayer)
+                return;
 
-      if (BloodEffect != null)
-      {
-        BloodEffect.transform.position = bullet.transform.position;
-        BloodEffect.Stop();
-        BloodEffect.Play();
-      }
+            hp -= bullet.damage * damageMultiplier;
+            onHpChanged?.Invoke();
 
-      if (hp <= 0)
-      {
-        ChangeState(deathState);
-      }
-    }
+            if (BloodEffect != null)
+            {
+                BloodEffect.transform.position = bullet.transform.position;
+                BloodEffect.Stop();
+                BloodEffect.Play();
+            }
 
-    public void OnGrenadeHit(AbstractGrenade grenade)
+            // Если союзник получил урон от игрока - становится враждебным
+            if (IsAlly)
+            {
+                AttackPlayer = true;
+            }
+
+            if (hp <= 0)
+            {
+                ChangeState(deathState);
+            }
+        }
+
+        public void OnGrenadeHit(AbstractGrenade grenade)
     {
       ChangeState(deathState);
     }
 
-    private void InitializeStartState()
+        private bool IsTargetVisible(Vector3 targetPosition)
+        {
+            Vector3 directionToTarget = (targetPosition - VisionSettings.VisionPosition.position).normalized;
+            RaycastHit hit;
+            if (Physics.Raycast(VisionSettings.VisionPosition.position, directionToTarget, out hit, allySearchRadius, VisionSettings.VisionLayers))
+            {
+                return !hit.collider.CompareTag("Wall"); // или другую подходящую проверку
+            }
+            return false;
+        }
+
+        private void InitializeStartState()
     {
       if (HasWaypoints())
       {

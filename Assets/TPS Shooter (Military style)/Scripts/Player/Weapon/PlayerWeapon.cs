@@ -11,7 +11,10 @@ namespace TPSShooter
     public GameObject BulletPrefab;
     public Transform BulletPosition;
 
-    [Header("- Weapon settings -")]
+        // код создания пули
+
+
+        [Header("- Weapon settings -")]
     public int MagCapacity = 30;
     public int BulletsInMag = 30;
     public int BulletsAmount = 30;
@@ -52,7 +55,9 @@ namespace TPSShooter
     private bool _isReloading;
     private bool _isScoping;
 
-    public bool CanShoot { get { return _canShoot && BulletsInMag > 0; } }
+       
+
+        public bool CanShoot { get { return _canShoot && BulletsInMag > 0; } }
     public bool CanReload { get { return _canReload && BulletsInMag != MagCapacity && BulletsAmount > 0; } }
     public bool IsReloading { get { return _isReloading; } }
 
@@ -126,11 +131,13 @@ namespace TPSShooter
           BulletPosition.eulerAngles = _emptyFireVector;
         }
 
-        // Instantiates bullet
-        Instantiate(
+                // Instantiates bullet
+
+           Instantiate(
           BulletPrefab,
           BulletPosition.transform.position,
           BulletPosition.transform.rotation
+
         );
       }
       else
@@ -141,7 +148,8 @@ namespace TPSShooter
         // Idle sound
         IdleSound.Play();
       }
-    }
+           
+        }
 
     // Makes shooting available
     private void CanShootNow()

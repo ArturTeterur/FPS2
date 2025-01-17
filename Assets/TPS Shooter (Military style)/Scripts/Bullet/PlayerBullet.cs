@@ -4,7 +4,9 @@ namespace TPSShooter
 {
   public class PlayerBullet : AbstractBullet
   {
-    protected override void OnBulletCollision(RaycastHit hit)
+
+        public GameObject shooter;
+        protected override void OnBulletCollision(RaycastHit hit)
     {
       // Influence on hit Object
       if (hit.transform.GetComponent<Rigidbody>())
